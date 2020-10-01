@@ -9,11 +9,33 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/user"
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
+
+var (
+	userGid uint32
+	userUid uint32
+)
+
+func SetUser(username string) error {
+	userEntry, e := user.Lookup(username)
+	if e != nil {
+		return e
+	}
+
+	userGid64, e := strconv.ParseUint(userEntry.Gid, 10, 32)
+	userUid64, e := strconv.ParseUint(userEntry.Uid, 10, 32)
+
+	userGid = uint32(userGid64)
+	userUid = uint32(userUid64)
+
+	return nil
+}
 
 // ServiceOption configures a Service instance.
 type ServiceOption func(*Service) error
@@ -166,7 +188,10 @@ func (s Service) FrameBuffer() *FrameBuffer {
 
 // NewSeleniumService starts a Selenium instance in the background.
 func NewSeleniumService(jarPath string, port int, opts ...ServiceOption) (*Service, error) {
-	s, err := newService(exec.Command("java"), "/wd/hub", port, opts...)
+	command := exec.Command("java")
+	command.SysProcAttr = &syscall.SysProcAttr{}
+	command.SysProcAttr.Credential = &syscall.Credential{Uid: userUid, Gid: userGid}
+	s, err := newService(command, "/wd/hub", port, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -197,6 +222,8 @@ func NewSeleniumService(jarPath string, port int, opts ...ServiceOption) (*Servi
 // NewChromeDriverService starts a ChromeDriver instance in the background.
 func NewChromeDriverService(path string, port int, opts ...ServiceOption) (*Service, error) {
 	cmd := exec.Command(path, "--port="+strconv.Itoa(port), "--url-base=wd/hub", "--verbose")
+	cmd.SysProcAttr = &syscall.SysProcAttr{}
+	cmd.SysProcAttr.Credential = &syscall.Credential{Uid: userUid, Gid: userGid}
 	s, err := newService(cmd, "/wd/hub", port, opts...)
 	if err != nil {
 		return nil, err
@@ -211,6 +238,8 @@ func NewChromeDriverService(path string, port int, opts ...ServiceOption) (*Serv
 // NewGeckoDriverService starts a GeckoDriver instance in the background.
 func NewGeckoDriverService(path string, port int, opts ...ServiceOption) (*Service, error) {
 	cmd := exec.Command(path, "--port", strconv.Itoa(port))
+	cmd.SysProcAttr = &syscall.SysProcAttr{}
+	cmd.SysProcAttr.Credential = &syscall.Credential{Uid: userUid, Gid: userGid}
 	s, err := newService(cmd, "", port, opts...)
 	if err != nil {
 		return nil, err
@@ -342,6 +371,8 @@ func NewFrameBufferWithOptions(options FrameBufferOptions) (*FrameBuffer, error)
 		arguments = append(arguments, "-screen", "0", options.ScreenSize)
 	}
 	xvfb := exec.Command("Xvfb", arguments...)
+	xvfb.SysProcAttr = &syscall.SysProcAttr{}
+	xvfb.SysProcAttr.Credential = &syscall.Credential{Uid: userUid, Gid: userGid}
 	xvfb.ExtraFiles = []*os.File{w}
 
 	// TODO(minusnine): plumb a way to set xvfb.Std{err,out} conditionally.
