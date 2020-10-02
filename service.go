@@ -188,10 +188,7 @@ func (s Service) FrameBuffer() *FrameBuffer {
 
 // NewSeleniumService starts a Selenium instance in the background.
 func NewSeleniumService(jarPath string, port int, opts ...ServiceOption) (*Service, error) {
-	command := exec.Command("java")
-	command.SysProcAttr = &syscall.SysProcAttr{}
-	command.SysProcAttr.Credential = &syscall.Credential{Uid: userUid, Gid: userGid}
-	s, err := newService(command, "/wd/hub", port, opts...)
+	s, err := newService(exec.Command("su", "selenium", "-c"), "/wd/hub", port, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -199,19 +196,13 @@ func NewSeleniumService(jarPath string, port int, opts ...ServiceOption) (*Servi
 		s.cmd.Path = s.javaPath
 	}
 	if s.geckoDriverPath != "" {
-		s.cmd.Args = append([]string{"java", "-Dwebdriver.gecko.driver=" + s.geckoDriverPath}, s.cmd.Args[1:]...)
-	}
-	if s.chromeDriverPath != "" {
-		s.cmd.Args = append([]string{"java", "-Dwebdriver.chrome.driver=" + s.chromeDriverPath}, s.cmd.Args[1:]...)
+		s.cmd.Args = append(s.cmd.Args, "java -Dwebdriver.gecko.driver="+s.geckoDriverPath+" -cp selenium-server.jar org.openqa.grid.selenium.GridLauncherV3 -port "+strconv.Itoa(port)+" -debug")
 	}
 
 	var classpath []string
 	if s.htmlUnitPath != "" {
 		classpath = append(classpath, s.htmlUnitPath)
 	}
-	classpath = append(classpath, jarPath)
-	s.cmd.Args = append(s.cmd.Args, "-cp", strings.Join(classpath, ":"))
-	s.cmd.Args = append(s.cmd.Args, "org.openqa.grid.selenium.GridLauncherV3", "-port", strconv.Itoa(port), "-debug")
 
 	if err := s.start(port); err != nil {
 		return nil, err
@@ -371,8 +362,6 @@ func NewFrameBufferWithOptions(options FrameBufferOptions) (*FrameBuffer, error)
 		arguments = append(arguments, "-screen", "0", options.ScreenSize)
 	}
 	xvfb := exec.Command("Xvfb", arguments...)
-	xvfb.SysProcAttr = &syscall.SysProcAttr{}
-	xvfb.SysProcAttr.Credential = &syscall.Credential{Uid: userUid, Gid: userGid}
 	xvfb.ExtraFiles = []*os.File{w}
 
 	// TODO(minusnine): plumb a way to set xvfb.Std{err,out} conditionally.
